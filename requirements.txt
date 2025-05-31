@@ -3,3 +3,4 @@ folium==0.15.0
 streamlit-folium==0.15.0
 osmnx==1.9.4
 networkx==3.2.1
+scikit-learn
