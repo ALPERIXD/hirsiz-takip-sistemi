@@ -16,7 +16,7 @@ GRAPH_CACHE_FILE = "bolu_graph_cache.pkl"
 @st.cache_data(show_spinner=False)
 def load_road_network():
     """Bolu merkez için yol ağını yükler - önce cache'den kontrol eder"""
-
+    
     # Önce cache dosyasını kontrol et
     if os.path.exists(GRAPH_CACHE_FILE):
         try:
@@ -26,15 +26,16 @@ def load_road_network():
             return graph
         except Exception as e:
             st.warning(f"Cache dosyası okunamadı, yeniden indiriliyor... ({e})")
-
+    
     # Cache yoksa veya bozuksa internetten çek
     st.info("🌐 Yol ağı verileri internetten indiriliyor... (İlk seferlik)")
-
-    # Çok küçük alan - sadece Bolu merkez (1km x 1km)
+    
+    # Düzeltilmiş koordinatlar - Bolu merkez
     north, south, east, west = 40.7450, 40.7350, 31.6100, 31.5950
     try:
-        graph = ox.graph_from_bbox(bbox=(north, south, east, west), network_type='drive')
-
+        # OSMnx'nin yeni API'sine uygun kullanım
+        graph = ox.graph_from_bbox(north=north, south=south, east=east, west=west, network_type='drive')
+        
         # Cache'e kaydet
         try:
             with open(GRAPH_CACHE_FILE, 'wb') as f:
@@ -42,11 +43,27 @@ def load_road_network():
             st.success("✅ Yol ağı cache'e kaydedildi!")
         except Exception as e:
             st.warning(f"Cache kaydedilemedi: {e}")
-
+        
         return graph
     except Exception as e:
         st.error(f"Yol ağı yüklenirken hata: {e}")
-        return None
+        # Alternatif olarak şehir ismi ile dene
+        try:
+            st.info("📍 Alternatif yöntemle deneniyor...")
+            graph = ox.graph_from_place("Bolu, Turkey", network_type='drive')
+            
+            # Cache'e kaydet
+            try:
+                with open(GRAPH_CACHE_FILE, 'wb') as f:
+                    pickle.dump(graph, f)
+                st.success("✅ Yol ağı alternatif yöntemle yüklendi ve cache'lendi!")
+            except Exception as e:
+                st.warning(f"Cache kaydedilemedi: {e}")
+            
+            return graph
+        except Exception as e2:
+            st.error(f"Alternatif yöntem de başarısız: {e2}")
+            return None
 
 def load_camera_data() -> List[Dict[str, Any]]:
     try:
@@ -114,9 +131,9 @@ def find_cameras_on_route(graph, route_nodes, cameras, buffer_distance=0.1):
     """Rota üzerindeki veya yakınındaki kameraları bulur"""
     if not route_nodes or not cameras:
         return []
-
+    
     route_cameras = []
-
+    
     for camera in cameras:
         camera_node = camera.get('node_id')
         if camera_node in route_nodes:
@@ -140,14 +157,14 @@ def find_cameras_on_route(graph, route_nodes, cameras, buffer_distance=0.1):
                         min_distance = min(min_distance, distance)
                     except:
                         continue
-
+            
             if min_distance <= buffer_distance:
                 route_cameras.append({
                     **camera,
                     "on_route": False,
                     "distance_to_route": min_distance
                 })
-
+    
     # Rota üzerindeki kameraları önce, sonra yakın olanları mesafeye göre sırala
     route_cameras.sort(key=lambda x: (not x['on_route'], x['distance_to_route']))
     return route_cameras
@@ -156,22 +173,22 @@ def create_route_map(graph, route_nodes, cameras, start_camera, end_camera):
     """Rota ve kameraları gösteren harita oluşturur"""
     if not route_nodes or graph is None:
         return None
-
+    
     # Harita merkezi hesapla
     route_coords = []
     for node in route_nodes:
         if graph.has_node(node):
             route_coords.append([graph.nodes[node]['y'], graph.nodes[node]['x']])
-
+    
     if not route_coords:
         return None
-
+    
     center_lat = sum(coord[0] for coord in route_coords) / len(route_coords)
     center_lon = sum(coord[1] for coord in route_coords) / len(route_coords)
-
+    
     # Haritayı oluştur
     route_map = folium.Map(location=[center_lat, center_lon], zoom_start=15)
-
+    
     # Rotayı çiz
     folium.PolyLine(
         locations=route_coords,
@@ -180,21 +197,21 @@ def create_route_map(graph, route_nodes, cameras, start_camera, end_camera):
         opacity=0.8,
         popup='Hırsız Güzergahı'
     ).add_to(route_map)
-
+    
     # Başlangıç kamerasını yeşil ile işaretle
     folium.Marker(
         location=[start_camera['y'], start_camera['x']],
         popup=f"BAŞLANGIÇ: {start_camera['name']}",
         icon=folium.Icon(color="green", icon="play", prefix="fa")
     ).add_to(route_map)
-
+    
     # Bitiş kamerasını kırmızı ile işaretle
     folium.Marker(
         location=[end_camera['y'], end_camera['x']],
         popup=f"BİTİŞ: {end_camera['name']}",
         icon=folium.Icon(color="red", icon="stop", prefix="fa")
     ).add_to(route_map)
-
+    
     # Diğer kameraları mavi ile işaretle
     for camera in cameras:
         if camera['name'] not in [start_camera['name'], end_camera['name']]:
@@ -203,7 +220,7 @@ def create_route_map(graph, route_nodes, cameras, start_camera, end_camera):
                 popup=camera['name'],
                 icon=folium.Icon(color="blue", icon="camera", prefix="fa")
             ).add_to(route_map)
-
+    
     return route_map
 
 def clear_cache():
@@ -226,25 +243,25 @@ def main():
     # Sidebar'a cache kontrolleri ekle
     with st.sidebar:
         st.header("⚙️ Sistem Ayarları")
-
+        
         # Cache durumunu göster
         if os.path.exists(GRAPH_CACHE_FILE):
             file_size = os.path.getsize(GRAPH_CACHE_FILE) / 1024  # KB
             st.success(f"✅ Yol ağı cache'i mevcut ({file_size:.1f} KB)")
         else:
             st.info("📂 Cache henüz oluşturulmamış")
-
+        
         if st.button("🔄 Cache'i Yenile"):
             if clear_cache():
                 st.success("Cache temizlendi, sayfa yeniden yüklenecek...")
                 st.rerun()
-
+        
         st.markdown("---")
         st.caption("💡 İlk açılışta yol ağı indirilir ve cache'lenir. Sonraki açılışlar çok daha hızlı olur.")
 
     # Yol ağını yükle (artık çok daha hızlı!)
     graph = load_road_network()
-
+    
     if graph is None:
         st.error("Yol ağı yüklenemedi. Lütfen daha sonra tekrar deneyin.")
         return
@@ -256,10 +273,10 @@ def main():
 
     # İki sütun layout
     col1, col2 = st.columns([1, 1])
-
+    
     with col1:
         st.header("📝 Yeni Kamera Ekle")
-
+        
         # Kamera ekleme haritası
         default_location = [40.7400, 31.6025]  # Bolu merkez
         harita = folium.Map(location=default_location, zoom_start=15)
@@ -301,43 +318,43 @@ def main():
                             st.error("❌ Bu konum için yol ağı düğümü bulunamadı!")
         else:
             st.info("📍 Konum seçmek için haritaya tıklayın.")
-
+    
     with col2:
         st.header("🔍 Güzergah Analizi")
-
+        
         if len(st.session_state.cameras) >= 2:
             # Başlangıç ve bitiş kamerası seçimi
             start_camera_name = st.selectbox("Başlangıç Kamerası (Hırsızın İlk Görüldüğü Yer)", 
                                            [cam['name'] for cam in st.session_state.cameras])
             end_camera_name = st.selectbox("Bitiş Kamerası (Hırsızın Son Görüldüğü Yer)", 
                                          [cam['name'] for cam in st.session_state.cameras])
-
+            
             if start_camera_name != end_camera_name:
                 start_camera = next((cam for cam in st.session_state.cameras if cam['name'] == start_camera_name), None)
                 end_camera = next((cam for cam in st.session_state.cameras if cam['name'] == end_camera_name), None)
-
+                
                 if st.button("🗺️ Güzergahı Hesapla"):
                     if start_camera and end_camera:
                         start_node = start_camera.get('node_id')
                         end_node = end_camera.get('node_id')
-
+                        
                         if start_node and end_node:
                             with st.spinner("Güzergah hesaplanıyor..."):
                                 route_nodes = calculate_route(graph, start_node, end_node)
-
+                                
                             if route_nodes:
                                 st.success(f"✅ Güzergah bulundu! {len(route_nodes)} düğümden oluşuyor.")
-
+                                
                                 # Rota haritasını oluştur ve göster
                                 route_map = create_route_map(graph, route_nodes, st.session_state.cameras, 
                                                            start_camera, end_camera)
                                 if route_map:
                                     st.markdown("### 🗺️ Hırsız Güzergahı")
                                     st_folium(route_map, width=500, height=400)
-
+                                
                                 # Rota üzerindeki kameraları bul
                                 route_cameras = find_cameras_on_route(graph, route_nodes, st.session_state.cameras)
-
+                                
                                 if route_cameras:
                                     st.markdown("### 📷 Güzergah Üzerindeki Kameralar")
                                     for i, cam in enumerate(route_cameras, 1):
@@ -400,8 +417,8 @@ def main():
         st.info("📭 Henüz kayıtlı kamera yok.")
 
     st.markdown("---")
-    st.markdown("💾 **Veriler `kamera_data.json` dosyasında saklanır.**")
-    st.markdown("🚀 **Yol ağı verileri `bolu_graph_cache.pkl` dosyasında cache'lenir.**")
+    st.markdown("💾 **Veriler kamera_data.json dosyasında saklanır.**")
+    st.markdown("🚀 **Yol ağı verileri bolu_graph_cache.pkl dosyasında cache'lenir.**")
 
 if __name__ == "__main__":
     main()
