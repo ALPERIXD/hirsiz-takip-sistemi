@@ -13,6 +13,13 @@ import networkx as nx
 DATA_FILE = "kamera_data.json"
 GRAPH_CACHE_FILE = "bolu_graph_cache.pkl"
 
+# Streamlit sayfa ayarlarını optimize et
+st.set_page_config(
+    page_title="Hırsız Takip Sistemi",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 @st.cache_data(show_spinner=False)
 def load_road_network():
     """Bolu merkez için yol ağını yükler - önce cache'den kontrol eder"""
@@ -22,13 +29,13 @@ def load_road_network():
         try:
             with open(GRAPH_CACHE_FILE, 'rb') as f:
                 graph = pickle.load(f)
-            st.success("✅ Yol ağı cache'den yüklendi!")
+            st.success("Yol ağı cache'den yüklendi")
             return graph
         except Exception as e:
             st.warning(f"Cache dosyası okunamadı, yeniden indiriliyor... ({e})")
     
     # Cache yoksa veya bozuksa internetten çek
-    st.info("🌐 Yol ağı verileri internetten indiriliyor... (İlk seferlik)")
+    st.info("Yol ağı verileri internetten indiriliyor... (İlk seferlik)")
     
     # Düzeltilmiş koordinatlar - Bolu merkez
     north, south, east, west = 40.7450, 40.7350, 31.6100, 31.5950
@@ -40,7 +47,7 @@ def load_road_network():
         try:
             with open(GRAPH_CACHE_FILE, 'wb') as f:
                 pickle.dump(graph, f)
-            st.success("✅ Yol ağı cache'e kaydedildi!")
+            st.success("Yol ağı cache'e kaydedildi")
         except Exception as e:
             st.warning(f"Cache kaydedilemedi: {e}")
         
@@ -49,14 +56,14 @@ def load_road_network():
         st.error(f"Yol ağı yüklenirken hata: {e}")
         # Alternatif olarak şehir ismi ile dene
         try:
-            st.info("📍 Alternatif yöntemle deneniyor...")
+            st.info("Alternatif yöntemle deneniyor...")
             graph = ox.graph_from_place("Bolu, Turkey", network_type='drive')
             
             # Cache'e kaydet
             try:
                 with open(GRAPH_CACHE_FILE, 'wb') as f:
                     pickle.dump(graph, f)
-                st.success("✅ Yol ağı alternatif yöntemle yüklendi ve cache'lendi!")
+                st.success("Yol ağı alternatif yöntemle yüklendi ve cache'lendi")
             except Exception as e:
                 st.warning(f"Cache kaydedilemedi: {e}")
             
@@ -186,30 +193,35 @@ def create_route_map(graph, route_nodes, cameras, start_camera, end_camera):
     center_lat = sum(coord[0] for coord in route_coords) / len(route_coords)
     center_lon = sum(coord[1] for coord in route_coords) / len(route_coords)
     
-    # Haritayı oluştur
-    route_map = folium.Map(location=[center_lat, center_lon], zoom_start=15)
+    # Haritayı oluştur - tiles parametresi açık şekilde belirtildi
+    route_map = folium.Map(
+        location=[center_lat, center_lon], 
+        zoom_start=15,
+        tiles='OpenStreetMap',
+        prefer_canvas=True
+    )
     
     # Rotayı çiz
     folium.PolyLine(
         locations=route_coords,
-        color='red',
-        weight=5,
+        color='#dc3545',
+        weight=4,
         opacity=0.8,
-        popup='Hırsız Güzergahı'
+        popup='Güzergah'
     ).add_to(route_map)
     
     # Başlangıç kamerasını yeşil ile işaretle
     folium.Marker(
         location=[start_camera['y'], start_camera['x']],
         popup=f"BAŞLANGIÇ: {start_camera['name']}",
-        icon=folium.Icon(color="green", icon="play", prefix="fa")
+        icon=folium.Icon(color="green", icon="play")
     ).add_to(route_map)
     
     # Bitiş kamerasını kırmızı ile işaretle
     folium.Marker(
         location=[end_camera['y'], end_camera['x']],
         popup=f"BİTİŞ: {end_camera['name']}",
-        icon=folium.Icon(color="red", icon="stop", prefix="fa")
+        icon=folium.Icon(color="red", icon="stop")
     ).add_to(route_map)
     
     # Diğer kameraları mavi ile işaretle
@@ -218,10 +230,30 @@ def create_route_map(graph, route_nodes, cameras, start_camera, end_camera):
             folium.Marker(
                 location=[camera['y'], camera['x']],
                 popup=camera['name'],
-                icon=folium.Icon(color="blue", icon="camera", prefix="fa")
+                icon=folium.Icon(color="blue", icon="info-sign")
             ).add_to(route_map)
     
     return route_map
+
+def create_camera_map(cameras):
+    """Kamera ekleme için harita oluşturur"""
+    default_location = [40.7400, 31.6025]  # Bolu merkez
+    harita = folium.Map(
+        location=default_location, 
+        zoom_start=15,
+        tiles='OpenStreetMap',
+        prefer_canvas=True
+    )
+
+    for cam in cameras:
+        folium.Marker(
+            location=[cam['y'], cam['x']],
+            popup=f"{cam['name']}",
+            icon=folium.Icon(color="blue", icon="info-sign")
+        ).add_to(harita)
+
+    folium.LatLngPopup().add_to(harita)
+    return harita
 
 def clear_cache():
     """Cache dosyalarını temizler"""
@@ -235,105 +267,136 @@ def clear_cache():
         return False
 
 def main():
-    st.set_page_config(page_title="Hırsız Takip Sistemi", layout="wide")
-    st.title("🕵️ Hırsız Takip Sistemi")
+    # Ana başlık
+    st.title("Hırsız Takip Sistemi")
     st.markdown("---")
-    st.markdown("Bu sistem ile kamera konumlarını belirleyip, hırsızın geçtiği güzergahı analiz edebilirsiniz.")
+    
+    # Açıklama metni
+    st.markdown("""
+    **Bu sistem ile kamera konumlarını belirleyip, hırsızın geçtiği güzergahı analiz edebilirsiniz.**
+    
+    1. Harita üzerinde kamera konumlarını işaretleyin
+    2. Başlangıç ve bitiş kameralarını seçin  
+    3. Sistem otomatik olarak en kısa güzergahı hesaplar
+    """)
 
-    # Sidebar'a cache kontrolleri ekle
+    # Sidebar ayarları
     with st.sidebar:
-        st.header("⚙️ Sistem Ayarları")
+        st.header("Sistem Ayarları")
         
         # Cache durumunu göster
         if os.path.exists(GRAPH_CACHE_FILE):
             file_size = os.path.getsize(GRAPH_CACHE_FILE) / 1024  # KB
-            st.success(f"✅ Yol ağı cache'i mevcut ({file_size:.1f} KB)")
+            st.success(f"Yol ağı cache'i mevcut ({file_size:.1f} KB)")
         else:
-            st.info("📂 Cache henüz oluşturulmamış")
+            st.info("Cache henüz oluşturulmamış")
         
-        if st.button("🔄 Cache'i Yenile"):
+        if st.button("Cache'i Yenile"):
             if clear_cache():
                 st.success("Cache temizlendi, sayfa yeniden yüklenecek...")
                 st.rerun()
         
         st.markdown("---")
-        st.caption("💡 İlk açılışta yol ağı indirilir ve cache'lenir. Sonraki açılışlar çok daha hızlı olur.")
+        st.caption("İlk açılışta yol ağı indirilir ve cache'lenir. Sonraki açılışlar çok daha hızlı olur.")
+        
+        # İstatistikler
+        if 'cameras' in st.session_state:
+            st.markdown("### İstatistikler")
+            st.metric("Toplam Kamera", len(st.session_state.cameras))
 
-    # Yol ağını yükle (artık çok daha hızlı!)
+    # Yol ağını yükle
     graph = load_road_network()
     
     if graph is None:
         st.error("Yol ağı yüklenemedi. Lütfen daha sonra tekrar deneyin.")
         return
 
+    # Session state başlatma
     if 'cameras' not in st.session_state:
         st.session_state.cameras = load_camera_data()
         if st.session_state.cameras:
-            st.success(f"✅ {len(st.session_state.cameras)} adet kayıtlı kamera yüklendi.")
+            st.success(f"{len(st.session_state.cameras)} adet kayıtlı kamera yüklendi.")
 
-    # İki sütun layout
-    col1, col2 = st.columns([1, 1])
+    # Ana içerik alanı
+    tab1, tab2, tab3 = st.tabs(["Kamera Ekle", "Güzergah Analizi", "Kamera Listesi"])
     
-    with col1:
-        st.header("📝 Yeni Kamera Ekle")
+    with tab1:
+        st.header("Yeni Kamera Ekle")
         
-        # Kamera ekleme haritası
-        default_location = [40.7400, 31.6025]  # Bolu merkez
-        harita = folium.Map(location=default_location, zoom_start=15)
+        # Kamera ekleme formu
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("Harita Üzerinde Konum Seç")
+            harita = create_camera_map(st.session_state.cameras)
+            clicked_data = st_folium(harita, width=700, height=500, key="camera_map")
+        
+        with col2:
+            st.subheader("Kamera Bilgileri")
+            
+            if clicked_data and clicked_data.get("last_clicked"):
+                x = clicked_data["last_clicked"]["lng"]
+                y = clicked_data["last_clicked"]["lat"]
+                
+                st.success("Konum seçildi")
+                st.write(f"**Enlem:** {y:.6f}")
+                st.write(f"**Boylam:** {x:.6f}")
+                
+                camera_name = st.text_input(
+                    "Kamera Adı", 
+                    placeholder="Örn: Merkez Kavşağı Kamerası",
+                    key="new_camera_name"
+                )
 
-        for cam in st.session_state.cameras:
-            folium.Marker(
-                location=[cam['y'], cam['x']],
-                popup=f"{cam['name']}",
-                icon=folium.Icon(color="blue", icon="camera", prefix="fa")
-            ).add_to(harita)
-
-        folium.LatLngPopup().add_to(harita)
-        clicked_data = st_folium(harita, width=500, height=400)
-
-        if clicked_data and clicked_data.get("last_clicked"):
-            x = clicked_data["last_clicked"]["lng"]
-            y = clicked_data["last_clicked"]["lat"]
-
-            camera_name = st.text_input("Kamera Adı", placeholder="Örn: Merkez Kavşağı Kamerası")
-
-            if st.button("🎯 Kamerayı Kaydet"):
-                if not camera_name.strip():
-                    st.error("⚠️ Kamera adı boş olamaz.")
-                else:
-                    existing_names = [cam['name'] for cam in st.session_state.cameras]
-                    if camera_name.strip() in existing_names:
-                        st.error("⚠️ Bu isimde bir kamera zaten kayıtlı!")
+                if st.button("Kamerayı Kaydet", type="primary"):
+                    if not camera_name.strip():
+                        st.error("Kamera adı boş olamaz.")
                     else:
-                        # En yakın yol düğümünü bul
-                        node_id = find_nearest_node(graph, y, x)
-                        if node_id is not None:
-                            st.session_state.cameras = add_new_camera(camera_name.strip(), x, y, node_id, st.session_state.cameras)
-                            if save_camera_data(st.session_state.cameras):
-                                st.success(f"✅ '{camera_name}' başarıyla kaydedildi!")
-                                st.rerun()
-                            else:
-                                st.error("❌ Kamera kaydedilirken bir hata oluştu!")
+                        existing_names = [cam['name'] for cam in st.session_state.cameras]
+                        if camera_name.strip() in existing_names:
+                            st.error("Bu isimde bir kamera zaten kayıtlı!")
                         else:
-                            st.error("❌ Bu konum için yol ağı düğümü bulunamadı!")
-        else:
-            st.info("📍 Konum seçmek için haritaya tıklayın.")
+                            # En yakın yol düğümünü bul
+                            node_id = find_nearest_node(graph, y, x)
+                            if node_id is not None:
+                                st.session_state.cameras = add_new_camera(
+                                    camera_name.strip(), x, y, node_id, st.session_state.cameras
+                                )
+                                if save_camera_data(st.session_state.cameras):
+                                    st.success(f"'{camera_name}' başarıyla kaydedildi!")
+                                    st.rerun()
+                                else:
+                                    st.error("Kamera kaydedilirken bir hata oluştu!")
+                            else:
+                                st.error("Bu konum için yol ağı düğümü bulunamadı!")
+            else:
+                st.info("Konum seçmek için haritaya tıklayın.")
     
-    with col2:
-        st.header("🔍 Güzergah Analizi")
+    with tab2:
+        st.header("Güzergah Analizi")
         
         if len(st.session_state.cameras) >= 2:
-            # Başlangıç ve bitiş kamerası seçimi
-            start_camera_name = st.selectbox("Başlangıç Kamerası (Hırsızın İlk Görüldüğü Yer)", 
-                                           [cam['name'] for cam in st.session_state.cameras])
-            end_camera_name = st.selectbox("Bitiş Kamerası (Hırsızın Son Görüldüğü Yer)", 
-                                         [cam['name'] for cam in st.session_state.cameras])
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                start_camera_name = st.selectbox(
+                    "Başlangıç Kamerası", 
+                    [cam['name'] for cam in st.session_state.cameras],
+                    help="Hırsızın ilk görüldüğü kamera"
+                )
+            
+            with col2:
+                end_camera_name = st.selectbox(
+                    "Bitiş Kamerası", 
+                    [cam['name'] for cam in st.session_state.cameras],
+                    help="Hırsızın son görüldüğü kamera"
+                )
             
             if start_camera_name != end_camera_name:
                 start_camera = next((cam for cam in st.session_state.cameras if cam['name'] == start_camera_name), None)
                 end_camera = next((cam for cam in st.session_state.cameras if cam['name'] == end_camera_name), None)
                 
-                if st.button("🗺️ Güzergahı Hesapla"):
+                if st.button("Güzergahı Hesapla", type="primary"):
                     if start_camera and end_camera:
                         start_node = start_camera.get('node_id')
                         end_node = end_camera.get('node_id')
@@ -343,82 +406,114 @@ def main():
                                 route_nodes = calculate_route(graph, start_node, end_node)
                                 
                             if route_nodes:
-                                st.success(f"✅ Güzergah bulundu! {len(route_nodes)} düğümden oluşuyor.")
+                                st.success(f"Güzergah bulundu! {len(route_nodes)} düğümden oluşuyor.")
                                 
                                 # Rota haritasını oluştur ve göster
-                                route_map = create_route_map(graph, route_nodes, st.session_state.cameras, 
-                                                           start_camera, end_camera)
+                                route_map = create_route_map(
+                                    graph, route_nodes, st.session_state.cameras, 
+                                    start_camera, end_camera
+                                )
                                 if route_map:
-                                    st.markdown("### 🗺️ Hırsız Güzergahı")
-                                    st_folium(route_map, width=500, height=400)
+                                    st.subheader("Güzergah Haritası")
+                                    st_folium(route_map, width=700, height=500, key="route_map")
                                 
                                 # Rota üzerindeki kameraları bul
                                 route_cameras = find_cameras_on_route(graph, route_nodes, st.session_state.cameras)
                                 
                                 if route_cameras:
-                                    st.markdown("### 📷 Güzergah Üzerindeki Kameralar")
+                                    st.subheader("Güzergah Üzerindeki Kameralar")
                                     for i, cam in enumerate(route_cameras, 1):
-                                        status = "🎯 Rota üzerinde" if cam['on_route'] else f"📍 {cam['distance_to_route']:.2f} km yakınında"
-                                        st.write(f"{i}. **{cam['name']}** - {status}")
+                                        status = "Rota üzerinde" if cam['on_route'] else f"{cam['distance_to_route']:.2f} km yakınında"
+                                        st.write(f"**{i}.** {cam['name']} - *{status}*")
                                 else:
                                     st.info("Bu güzergah üzerinde başka kamera bulunamadı.")
                             else:
-                                st.error("❌ Bu iki kamera arasında güzergah bulunamadı!")
+                                st.error("Bu iki kamera arasında güzergah bulunamadı!")
                         else:
-                            st.error("❌ Seçilen kameraların yol ağı bilgileri eksik!")
+                            st.error("Seçilen kameraların yol ağı bilgileri eksik!")
             else:
-                st.warning("⚠️ Başlangıç ve bitiş kameraları farklı olmalı!")
+                st.warning("Başlangıç ve bitiş kameraları farklı olmalı!")
         else:
-            st.info("📷 Güzergah analizi için en az 2 kamera gerekli.")
+            st.info("Güzergah analizi için en az 2 kamera gerekli.")
 
-    st.header("📋 Kayıtlı Kameralar")
+    with tab3:
+        st.header("Kayıtlı Kameralar")
 
-    if st.session_state.cameras:
-        st.info(f"💡 Toplam {len(st.session_state.cameras)} kamera kayıtlı")
-        for i, camera in enumerate(st.session_state.cameras, 1):
-            with st.container():
-                col1, col2, col3, col4, col5 = st.columns([1, 3, 2, 2, 2])
-                with col1:
-                    st.write(f"**#{i}**")
-                with col2:
-                    st.write(f"📷 **{camera['name']}**")
-                with col3:
-                    st.write(f"**X:** {camera['x']:.5f}")
-                with col4:
-                    st.write(f"**Y:** {camera['y']:.5f}")
-                with col5:
-                    st.write(f"**Düğüm:** {camera.get('node_id', 'N/A')}")
-                st.markdown("---")
+        if st.session_state.cameras:
+            st.info(f"Toplam {len(st.session_state.cameras)} kamera kayıtlı")
+            
+            # Tablo formatında göster
+            for i, camera in enumerate(st.session_state.cameras, 1):
+                with st.container():
+                    col1, col2, col3, col4, col5 = st.columns([1, 3, 2, 2, 2])
+                    with col1:
+                        st.write(f"**{i}**")
+                    with col2:
+                        st.write(f"**{camera['name']}**")
+                    with col3:
+                        st.write(f"{camera['x']:.5f}")
+                    with col4:
+                        st.write(f"{camera['y']:.5f}")
+                    with col5:
+                        st.write(f"{camera.get('node_id', 'N/A')}")
+                    st.divider()
 
-        with st.expander("🔍 JSON Formatında Gör"):
-            st.json(st.session_state.cameras)
+            with st.expander("JSON Formatında Görüntüle"):
+                st.json(st.session_state.cameras)
 
-        # Butonlar ve onaylar
-        st.markdown("---")
-        st.header("⚠️ Dikkatli Ol: Verileri Sıfırla")
-        if not st.session_state.get('confirm_delete', False):
-            if st.button("🗑️ Tüm Verileri Temizle"):
-                st.session_state.confirm_delete = True
-                st.warning("⚠️ Verileri silmek istediğine emin misin? Bu işlem geri alınamaz. Aynı butona tekrar bas.")
-        else:
-            if st.button("❗ Eminim, Verileri Sil"):
-                st.session_state.cameras = []
-                if save_camera_data([]):
-                    st.success("✅ Tüm veriler silindi!")
-                    st.session_state.confirm_delete = False
-                    st.rerun()
+            # Veri yönetimi
+            st.subheader("Veri Yönetimi")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Verileri Dışa Aktar"):
+                    st.download_button(
+                        label="JSON Dosyası İndir",
+                        data=json.dumps(st.session_state.cameras, ensure_ascii=False, indent=2),
+                        file_name="kamera_verileri.json",
+                        mime="application/json"
+                    )
+            
+            with col2:
+                if not st.session_state.get('confirm_delete', False):
+                    if st.button("Tüm Verileri Temizle", type="secondary"):
+                        st.session_state.confirm_delete = True
+                        st.rerun()
                 else:
-                    st.error("❌ Veriler temizlenirken hata oluştu!")
-            if st.button("✋ İptal Et"):
-                st.session_state.confirm_delete = False
-                st.info("Veri silme işlemi iptal edildi.")
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        if st.button("Onayla", type="primary"):
+                            st.session_state.cameras = []
+                            if save_camera_data([]):
+                                st.success("Tüm veriler silindi!")
+                                st.session_state.confirm_delete = False
+                                st.rerun()
+                            else:
+                                st.error("Veriler temizlenirken hata oluştu!")
+                    with col_b:
+                        if st.button("İptal"):
+                            st.session_state.confirm_delete = False
+                            st.rerun()
+                    
+                    st.warning("Tüm verileri silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")
 
-    else:
-        st.info("📭 Henüz kayıtlı kamera yok.")
+        else:
+            st.info("Henüz kayıtlı kamera yok.")
 
+    # Footer bilgileri
     st.markdown("---")
-    st.markdown("💾 **Veriler kamera_data.json dosyasında saklanır.**")
-    st.markdown("🚀 **Yol ağı verileri bolu_graph_cache.pkl dosyasında cache'lenir.**")
+    with st.expander("Teknik Bilgiler"):
+        st.markdown("""
+        **Veri Depolama:**
+        - Kamera verileri: `kamera_data.json`
+        - Yol ağı cache: `bolu_graph_cache.pkl`
+        
+        **Kullanılan Teknolojiler:**
+        - OSMnx: OpenStreetMap yol ağı verileri
+        - NetworkX: Graf algoritmaları ve en kısa yol hesaplaması
+        - Folium: İnteraktif harita görselleştirme
+        - Streamlit: Web uygulama arayüzü
+        """)
 
 if __name__ == "__main__":
     main()
