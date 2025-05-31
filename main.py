@@ -193,13 +193,26 @@ def create_route_map(graph, route_nodes, cameras, start_camera, end_camera):
     center_lat = sum(coord[0] for coord in route_coords) / len(route_coords)
     center_lon = sum(coord[1] for coord in route_coords) / len(route_coords)
     
-    # Haritayı oluştur - tiles parametresi açık şekilde belirtildi
-    route_map = folium.Map(
-        location=[center_lat, center_lon], 
-        zoom_start=15,
-        tiles='OpenStreetMap',
-        prefer_canvas=True
-    )
+    # Haritayı oluştur - farklı tile seçenekleri deniyoruz
+    try:
+        route_map = folium.Map(
+            location=[center_lat, center_lon], 
+            zoom_start=15,
+            tiles='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            attr='OpenStreetMap'
+        )
+    except:
+        try:
+            route_map = folium.Map(
+                location=[center_lat, center_lon], 
+                zoom_start=15,
+                tiles='CartoDB positron'
+            )
+        except:
+            route_map = folium.Map(
+                location=[center_lat, center_lon], 
+                zoom_start=15
+            )
     
     # Rotayı çiz
     folium.PolyLine(
@@ -238,12 +251,27 @@ def create_route_map(graph, route_nodes, cameras, start_camera, end_camera):
 def create_camera_map(cameras):
     """Kamera ekleme için harita oluşturur"""
     default_location = [40.7400, 31.6025]  # Bolu merkez
-    harita = folium.Map(
-        location=default_location, 
-        zoom_start=15,
-        tiles='OpenStreetMap',
-        prefer_canvas=True
-    )
+    
+    # Harita oluşturma - farklı tile seçenekleri deniyoruz
+    try:
+        harita = folium.Map(
+            location=default_location, 
+            zoom_start=15,
+            tiles='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            attr='OpenStreetMap'
+        )
+    except:
+        try:
+            harita = folium.Map(
+                location=default_location, 
+                zoom_start=15,
+                tiles='CartoDB positron'
+            )
+        except:
+            harita = folium.Map(
+                location=default_location, 
+                zoom_start=15
+            )
 
     for cam in cameras:
         folium.Marker(
@@ -329,7 +357,13 @@ def main():
         with col1:
             st.subheader("Harita Üzerinde Konum Seç")
             harita = create_camera_map(st.session_state.cameras)
-            clicked_data = st_folium(harita, width=700, height=500, key="camera_map")
+            clicked_data = st_folium(
+                harita, 
+                width=700, 
+                height=500, 
+                key="camera_map",
+                returned_objects=["last_clicked"]
+            )
         
         with col2:
             st.subheader("Kamera Bilgileri")
@@ -415,7 +449,13 @@ def main():
                                 )
                                 if route_map:
                                     st.subheader("Güzergah Haritası")
-                                    st_folium(route_map, width=700, height=500, key="route_map")
+                                    st_folium(
+                                        route_map, 
+                                        width=700, 
+                                        height=500, 
+                                        key="route_map",
+                                        returned_objects=["last_clicked"]
+                                    )
                                 
                                 # Rota üzerindeki kameraları bul
                                 route_cameras = find_cameras_on_route(graph, route_nodes, st.session_state.cameras)
